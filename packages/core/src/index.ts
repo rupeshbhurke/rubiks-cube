@@ -6,3 +6,5 @@ export * from './notation';
 export * from './cube/geometry';
 export * from './cube/CubePuzzle';
 export { toKociembaFacelets, validateCube3 } from './cube/cube3';
+export { BEGINNER_STAGES, findPieceStickers, planBeginnerSolve } from './learn/beginner';
+export type { GuideStage, GuideStep, StageId } from './learn/beginner';

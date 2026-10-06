@@ -12,6 +12,9 @@ import {
   encodeShare,
   getCube,
   restoreSession,
+  type StageId,
+  BEGINNER_STAGES,
+  planBeginnerSolve,
   stateToFacelets,
   toKociembaFacelets,
 } from '@rubiks/core';
@@ -28,14 +31,35 @@ export interface Toast {
   kind: 'info' | 'success' | 'error';
 }
 
-export interface SolverSnapshot {
-  status: 'idle' | 'loading' | 'ready' | 'error';
+export type PlanKind = 'guided' | 'quick';
+
+export interface PlanStepSnapshot {
+  stage?: StageId;
+  text?: string;
+  /** Range of this step in the plan's move list. */
+  start: number;
+  end: number;
+}
+
+export interface PlanSnapshot {
+  kind: PlanKind;
   moves: string[];
-  /** Number of solution moves already played. */
+  steps: PlanStepSnapshot[];
+  /** Number of plan moves already done. */
+  pointer: number;
+  /** Index of the step being worked on; equals steps.length when finished. */
   step: number;
-  /** True when the cube changed since the solution was computed. */
+  /** Half of a double turn (like R2) has been done by hand. */
+  half: boolean;
+  /** The cube left the plan (for example after a different move). */
   stale: boolean;
+}
+
+export interface SolverSnapshot {
+  /** State of the fast (computer) solver request. */
+  quick: 'idle' | 'loading' | 'error';
   error?: string;
+  plan: PlanSnapshot | null;
 }
 
 export interface Snapshot {
@@ -65,6 +89,26 @@ interface Settings {
   size: number;
 }
 
+interface PlanStep extends PlanStepSnapshot {
+  focus: number[][];
+}
+
+/** Moves to follow, with the state key expected before and after each move. */
+interface Plan {
+  kind: PlanKind;
+  moves: string[];
+  steps: PlanStep[];
+  /** keys[i] = state key after i moves. */
+  keys: string[];
+  /** For double turns: keys after a quarter turn either way. */
+  halfKeys: string[][];
+  pointer: number;
+  half: boolean;
+  /** Quarter-turn direction already done when `half` is set. */
+  halfTurns: number;
+  stale: boolean;
+}
+
 interface QueuedTurn {
   move: CubeMove;
   after: State;
@@ -91,7 +135,7 @@ export class AppController {
   private idleWaiters: (() => void)[] = [];
   private playToken = 0;
   private replaying = false;
-  private solutionPlaying = false;
+  private planPlaying = false;
   private celebrateWhenIdle = false;
 
   private mode: Mode = 'play';
@@ -99,12 +143,11 @@ export class AppController {
   private paintColor = 0;
   private paintResult: ValidationResult | null = null;
 
-  private solver: { status: SolverSnapshot['status']; moves: string[]; step: number; expected: string; error?: string } = {
-    status: 'idle',
-    moves: [],
-    step: 0,
-    expected: '',
-  };
+  private quick: { status: SolverSnapshot['quick']; error?: string } = { status: 'idle' };
+  private plan: Plan | null = null;
+  private lastSyncedKey = '';
+  /** Camera side last chosen by the guide, so it only moves when the stage changes. */
+  private guideView: 'top' | 'bottom' | null = null;
 
   private speed = 1;
   private currentSaveId: string | null = null;
@@ -247,10 +290,10 @@ export class AppController {
   }
 
   stopPlayback(): void {
-    if (!this.replaying && !this.solutionPlaying) return;
+    if (!this.replaying && !this.planPlaying) return;
     this.playToken++;
     this.replaying = false;
-    this.solutionPlaying = false;
+    this.planPlaying = false;
     this.emit();
   }
 
@@ -314,63 +357,202 @@ export class AppController {
     this.view?.setInset(left, bottom);
   }
 
-  /* ---------- Solver ---------- */
+  /* ---------- Solving ---------- */
 
+  /** Plan a solve with the beginner method and guide the user through it. */
+  startGuided(): void {
+    if (!this.canPlan()) return;
+    try {
+      const steps = planBeginnerSolve(this.session.state);
+      this.plan = this.buildPlan('guided', steps);
+      this.lastSyncedKey = '';
+    } catch (err) {
+      this.toast((err as Error).message, 'error');
+    }
+    this.emit();
+  }
+
+  /** Find a short computer solution (Kociemba) in the solver worker. */
   async solve(): Promise<void> {
-    if (this.puzzle.n !== 3) {
-      this.toast('The solver supports 3x3x3 only for now.', 'info');
-      return;
-    }
-    if (this.mode !== 'play') return;
-    this.stopPlayback();
-    this.flush();
+    if (!this.canPlan()) return;
     const state = this.session.state;
-    if (this.puzzle.isSolved(state)) {
-      this.toast('The cube is already solved.', 'info');
-      return;
-    }
     const key = this.stateKey(state);
-    this.solver = { status: 'loading', moves: [], step: 0, expected: key };
+    this.quick = { status: 'loading' };
+    this.plan = null;
     this.emit();
     try {
       const moves = await this.solverClient.solve(toKociembaFacelets(state));
-      if (this.stateKey(this.session.state) !== key) return; // cube changed while solving
-      this.solver = { status: 'ready', moves, step: 0, expected: key };
+      this.quick = { status: 'idle' };
+      if (this.stateKey(this.session.state) === key) {
+        this.plan = this.buildPlan('quick', [{ moves, focus: [] }]);
+        this.lastSyncedKey = '';
+      }
     } catch (err) {
-      this.solver = { status: 'error', moves: [], step: 0, expected: key, error: (err as Error).message };
+      this.quick = { status: 'error', error: (err as Error).message };
     }
     this.emit();
   }
 
-  solutionNext(): void {
+  clearPlan(): void {
     this.stopPlayback();
-    this.solutionStep();
+    this.plan = null;
+    this.emit();
   }
 
-  /** Play the next solution move. Returns false when there is nothing to play. */
-  private solutionStep(): boolean {
-    const s = this.solver;
-    if (s.status !== 'ready' || s.step >= s.moves.length || this.solverStale()) return false;
-    const move = this.puzzle.parseMove(s.moves[s.step]);
-    this.playMove(move);
-    s.step++;
-    s.expected = this.stateKey(this.session.state);
+  /** Play the next move of the plan. */
+  planNext(): void {
+    this.stopPlayback();
+    this.planStep();
+  }
+
+  /** Play the rest of the current step. */
+  async playPlanStep(): Promise<void> {
+    const p = this.plan;
+    if (!p) return;
+    const end = p.steps.find((s) => p.pointer < s.end)?.end ?? p.moves.length;
+    await this.playPlanUntil(() => (this.plan?.pointer ?? end) >= end);
+  }
+
+  /** Play every remaining move of the plan. */
+  async playPlan(): Promise<void> {
+    await this.playPlanUntil(() => false);
+  }
+
+  private async playPlanUntil(done: () => boolean): Promise<void> {
+    this.stopPlayback();
+    const token = ++this.playToken;
+    this.planPlaying = true;
     this.emit();
+    while (token === this.playToken && !done() && this.planStep()) {
+      await this.whenIdle();
+      await this.wait(140 / this.speed);
+    }
+    if (token === this.playToken) {
+      this.planPlaying = false;
+      this.emit();
+    }
+  }
+
+  /** Play one plan move. Returns false when there is nothing to play. */
+  private planStep(): boolean {
+    const p = this.plan;
+    if (!p || p.stale || p.pointer >= p.moves.length || this.mode !== 'play') return false;
+    let move = this.puzzle.parseMove(p.moves[p.pointer]);
+    if (p.half) move = { ...move, turns: p.halfTurns }; // finish a half-done double turn
+    this.playMove(move);
     return true;
   }
 
-  async playSolution(): Promise<void> {
-    this.stopPlayback();
-    const token = ++this.playToken;
-    this.solutionPlaying = true;
-    this.emit();
-    while (token === this.playToken && this.solutionStep()) {
-      await this.whenIdle();
-      await this.wait(160 / this.speed);
+  private canPlan(): boolean {
+    if (this.puzzle.n !== 3) {
+      this.toast('Solving is available for the 3x3x3 only for now.', 'info');
+      return false;
     }
-    if (token === this.playToken) {
-      this.solutionPlaying = false;
-      this.emit();
+    if (this.mode !== 'play') return false;
+    this.stopPlayback();
+    this.flush();
+    if (this.puzzle.isSolved(this.session.state)) {
+      this.toast('The cube is already solved. Scramble it first.', 'info');
+      return false;
+    }
+    return true;
+  }
+
+  private buildPlan(kind: PlanKind, steps: { moves: string[]; text?: string; stage?: StageId; focus: number[][] }[]): Plan {
+    let state = this.session.state;
+    const plan: Plan = {
+      kind,
+      moves: [],
+      steps: [],
+      keys: [this.stateKey(state)],
+      halfKeys: [],
+      pointer: 0,
+      half: false,
+      halfTurns: 0,
+      stale: false,
+    };
+    for (const step of steps) {
+      const start = plan.moves.length;
+      for (const token of step.moves) {
+        const move = this.puzzle.parseMove(token);
+        plan.halfKeys.push(
+          Math.abs(move.turns) === 2
+            ? [1, -1].map((turns) => this.stateKey(this.puzzle.apply(state, { ...move, turns })))
+            : [],
+        );
+        state = this.puzzle.apply(state, move);
+        plan.keys.push(this.stateKey(state));
+        plan.moves.push(token);
+      }
+      plan.steps.push({ stage: step.stage, text: step.text, focus: step.focus, start, end: plan.moves.length });
+    }
+    return plan;
+  }
+
+  /** Match the cube against the plan after any change, so hand-made moves and undo are followed. */
+  private syncPlan(): void {
+    const p = this.plan;
+    if (!p) return;
+    const key = this.stateKey(this.session.state);
+    if (key === this.lastSyncedKey) return;
+    this.lastSyncedKey = key;
+    // A position can appear twice in a plan (for example U' then U). Take the
+    // nearest match, preferring forward so playback never loops back.
+    const distance = (j: number) => (j >= p.pointer ? j - p.pointer : p.pointer - j + 0.5);
+    let best = -1;
+    p.keys.forEach((k, j) => {
+      if (k === key && (best < 0 || distance(j) < distance(best))) best = j;
+    });
+    if (best >= 0) {
+      const before = this.stepIndex(p);
+      p.pointer = best;
+      p.half = false;
+      p.stale = false;
+      const after = this.stepIndex(p);
+      if (p.kind === 'guided' && after > before) this.announceStage(p, before, after);
+      return;
+    }
+    const halfIndex = p.halfKeys[p.pointer]?.indexOf(key) ?? -1;
+    if (halfIndex >= 0) {
+      p.half = true;
+      p.halfTurns = halfIndex === 0 ? 1 : -1;
+      p.stale = false;
+      return;
+    }
+    p.stale = true;
+    p.half = false;
+  }
+
+  private stepIndex(p: Plan): number {
+    const i = p.steps.findIndex((s) => p.pointer < s.end);
+    return i < 0 ? p.steps.length : i;
+  }
+
+  /** Toast a beginner stage that was just finished. */
+  private announceStage(p: Plan, before: number, after: number): void {
+    const finished = p.steps[before]?.stage;
+    if (!finished || finished === 'orient' || p.steps[after]?.stage === finished) return;
+    if (after >= p.steps.length) return; // the solved celebration covers the last stage
+    const title = BEGINNER_STAGES.find((s) => s.id === finished)?.title;
+    if (title) this.toast(`✓ ${title} done`, 'success');
+  }
+
+  /** Light up the pieces the current guided step works on, and show the side where the work happens. */
+  private updateFocus(): void {
+    const p = this.plan;
+    const guided = p && p.kind === 'guided' && this.mode === 'play' ? p : null;
+    const step = guided && !guided.stale ? guided.steps[this.stepIndex(guided)] : undefined;
+    this.view?.setFocus(step?.focus ?? []);
+    if (!guided) {
+      this.guideView = null;
+      return;
+    }
+    if (!step) return;
+    // The white cross and corners are built on the bottom layer.
+    const side = step.stage === 'cross' || step.stage === 'corners' ? 'bottom' : 'top';
+    if (side !== this.guideView) {
+      this.guideView = side;
+      this.view?.viewFrom(side);
     }
   }
 
@@ -708,11 +890,8 @@ export class AppController {
   }
 
   private resetSolver(): void {
-    this.solver = { status: 'idle', moves: [], step: 0, expected: '' };
-  }
-
-  private solverStale(): boolean {
-    return this.solver.status === 'ready' && this.stateKey(this.session.state) !== this.solver.expected;
+    this.quick = { status: 'idle' };
+    this.plan = null;
   }
 
   private stateKey(state: State): string {
@@ -765,6 +944,8 @@ export class AppController {
   }
 
   private emit(): void {
+    this.syncPlan();
+    this.updateFocus();
     this.snapshot = this.buildSnapshot();
     this.listeners.forEach((l) => l());
     this.scheduleAutosave();
@@ -782,18 +963,24 @@ export class AppController {
       cursor: this.session.cursor,
       scramble: this.session.scramble,
       solved: this.puzzle.isSolved(this.session.state),
-      playing: this.running || this.replaying || this.solutionPlaying,
+      playing: this.running || this.replaying || this.planPlaying,
       replaying: this.replaying,
       mode: this.mode,
       paintColor: this.paintColor,
       paintCounts,
       paintResult: this.paintResult,
       solver: {
-        status: this.solver.status,
-        moves: this.solver.moves,
-        step: this.solver.step,
-        stale: this.solverStale(),
-        error: this.solver.error,
+        quick: this.quick.status,
+        error: this.quick.error,
+        plan: this.plan && {
+          kind: this.plan.kind,
+          moves: this.plan.moves,
+          steps: this.plan.steps,
+          pointer: this.plan.pointer,
+          step: this.stepIndex(this.plan),
+          half: this.plan.half,
+          stale: this.plan.stale,
+        },
       },
       speed: this.speed,
       saves: this.saves,

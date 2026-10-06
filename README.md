@@ -13,7 +13,8 @@ A 3D Rubik's cube that runs in the browser. You can turn layers by dragging or w
 - Keyboard notation (`U D R L F B M E S X Y Z`, Shift for counter-clockwise), undo and redo. Press `?` for a floating key guide that stays open beside the cube and lights up each key as you press it.
 - Cube sizes 2x2x2 to 7x7x7.
 - Scramble, full move history, replay, and jump to any point in the history.
-- Solver for the 3x3x3 (Kociemba two-phase, about 20 moves) with a step-by-step explanation of each move.
+- Guided beginner solve for the 3x3x3: the layer-by-layer method in seven stages (white cross, white corners, middle layer, yellow cross, yellow edges, place and twist yellow corners). Each step is explained in plain language, the pieces to work on glow, and the camera turns to show the bottom layer when the work happens there. Do the moves yourself and the guide follows; make a wrong move and it tells you to undo.
+- Fast solver for the 3x3x3 (Kociemba two-phase, about 20 moves) with a step-by-step explanation of each move.
 - Paint mode to copy a physical cube. The app checks that the painted cube can really exist (color counts, impossible pieces, twisted corners, flipped edges, swapped pieces).
 - Saves in the browser, export and import as `.json` files, and share links. Saves keep the starting state and every move, so they can be replayed.
 - Works with mouse and touch; the layout adapts to phone screens.
@@ -56,6 +57,7 @@ npm workspaces with two packages:
 - `cube/`: the NxN cube. A state is one color per sticker, in Kociemba facelet order (U, R, F, D, L, B). Moves are sticker permutations generated from 3D geometry, so every size works the same way. `cube3.ts` adds the full 3x3x3 solvability checks.
 - `session.ts`: starting state, move history and cursor (undo, redo, seek).
 - `save.ts`: the versioned JSON save format and the share-link encoding.
+- `learn/`: the beginner-method planner. It works on pieces (corners and edges) instead of stickers, uses fixed rules for each stage like a human tutorial, and a small search only for the white cross.
 - `solver/`: the 3x3x3 solver. It uses [cubejs](https://github.com/ldez/cubejs) (MIT), vendored in `solver/vendor` as ES modules.
 
 ### `apps/web`
@@ -82,7 +84,6 @@ Status as of October 2026. Items move to **Features** when they are done.
 
 - **More puzzles: Pyraminx, Skewb and Megaminx.** Each needs its puzzle logic, scramble and 3D view in `packages/core` and `apps/web` (see [Adding a new puzzle type](#adding-a-new-puzzle-type)). `AppController` and the side panels also need to stop assuming a cube.
 - **2D unfolded net view.** Not yet decided: a net beside the 3D cube, a net only in paint mode, or a switch between the two.
-- **Guided beginner solve.** The current solver gives short computer solutions that are hard to follow. A layer-by-layer guide would teach each stage in plain language, for example "make the white cross", and would better serve the learning goal.
 - **Logic shared with the mobile app.** The mobile app will live in a separate repository and should reuse `packages/core`. The package needs a build step to JavaScript plus type definitions. It also needs a way to share it: a private npm package, a git dependency, or moving the mobile app into this repository.
 
 ### Known gaps
@@ -96,6 +97,8 @@ Status as of October 2026. Items move to **Features** when they are done.
 - **No automated tests for the web app.** `packages/core` has unit tests, but the UI was checked by hand and with one-off browser scripts. CI runs the unit tests and the build on every push; end-to-end browser tests (for example Playwright) still need adding.
 - **Not yet tested on real devices.** Drag feel, animation speed and touch handling need checking on real computers and phones.
 - **Bundle size.** The app ships as one 864 KB script (233 KB gzipped). Splitting Three.js and React into separate chunks would speed up the first load.
+- **Guided solve covers the 3x3x3 only.** Bigger cubes need the reduction method (centers, then edge pairing) before these stages apply.
+- **Unit tests clash with a running dev server.** Running `npm test` while `npm run dev` is running can fail with `Cannot read properties of undefined (reading 'config')`. Stop the dev server first.
 - **Saves stay in one browser.** Saves use `localStorage` behind `SaveStore`, so they can move to IndexedDB or cloud storage later.
 
 ### Open decisions
@@ -106,9 +109,8 @@ Status as of October 2026. Items move to **Features** when they are done.
 ### Suggested order
 
 1. Test on real devices.
-2. Build the guided beginner solve.
-3. Package `packages/core` for the mobile app.
-4. Add the new puzzle types.
+2. Package `packages/core` for the mobile app.
+3. Add the new puzzle types.
 
 ## License
 

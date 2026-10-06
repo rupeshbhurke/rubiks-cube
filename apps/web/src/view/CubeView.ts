@@ -2,10 +2,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { type Axis, type CubeMove, type CubePuzzle, type State, type Vec3, UNKNOWN_COLOR } from '@rubiks/core';
+import { type Axis, type CubeMove, type CubePuzzle, type State, type Vec3, UNKNOWN_COLOR, findPieceStickers } from '@rubiks/core';
 
 const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
 const Z = new THREE.Vector3(0, 0, 1);
+/** Camera directions: the usual view from above, and one from below for bottom-layer work. */
+const VIEW_FROM = {
+  top: new THREE.Vector3(0.72, 0.68, 1).normalize(),
+  bottom: new THREE.Vector3(0.72, -0.62, 1).normalize(),
+};
 
 const BODY_SIZE = 0.97;
 const BODY_RADIUS = 0.09;
@@ -74,6 +79,14 @@ export class CubeView {
   private dragAngle = 0;
   private spin: { start: number; duration: number } | null = null;
   private highlighted = new Set<number>();
+  /** State currently shown, used to find focus pieces after each turn. */
+  private shown: State | null = null;
+  /** Pieces to make glow, each given by its colors. */
+  private focusPieces: number[][] = [];
+  private focused = new Set<number>();
+  private readonly glowMaterials = new Map<number, THREE.MeshPhysicalMaterial>();
+  private readonly dimMaterials = new Map<number, THREE.MeshPhysicalMaterial>();
+  private cameraMove: { from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number } | null = null;
   /** Render only when something changed, to save CPU and battery. */
   private dirty = true;
   /** Screen space (CSS px) covered by overlays; the cube is centered in the rest. */
@@ -103,6 +116,8 @@ export class CubeView {
     this.controls.enablePan = false;
     this.controls.rotateSpeed = 0.9;
     this.controls.addEventListener('change', this.invalidate);
+    // Dragging the view takes over from any automatic camera move.
+    this.controls.addEventListener('start', () => (this.cameraMove = null));
 
     this.stickerGeometry = new THREE.ShapeGeometry(roundedSquare(STICKER_SIZE, STICKER_RADIUS), 6);
     this.bodyGeometry = new RoundedBoxGeometry(BODY_SIZE, BODY_SIZE, BODY_SIZE, 4, BODY_RADIUS);
@@ -181,22 +196,79 @@ export class CubeView {
 
   resetCamera(): void {
     const n = this.puzzle.n;
-    this.camera.position.set(0.72, 0.68, 1).normalize().multiplyScalar(n * 3.6 + 1.5);
+    this.cameraMove = null;
+    this.camera.position.copy(VIEW_FROM.top).multiplyScalar(n * 3.6 + 1.5);
     this.controls.target.set(0, 0, 0);
     this.controls.update();
     this.invalidate();
   }
 
+  /** Swing the camera smoothly to look from above or below, keeping the distance. */
+  viewFrom(side: 'top' | 'bottom'): void {
+    const from = this.camera.position.clone().normalize();
+    const to = VIEW_FROM[side].clone();
+    if (from.angleTo(to) < 0.05) return;
+    this.cameraMove = { from, to, start: performance.now(), duration: 900 };
+    this.invalidate();
+  }
+
   setState(state: State): void {
+    this.shown = state;
+    for (const i of this.focused) this.stickers[i].scale.setScalar(this.highlighted.has(i) ? 1.12 : 1);
+    this.focused = this.findFocus(state);
     state.forEach((color, i) => {
-      this.stickers[i].material = this.material(color);
+      this.stickers[i].material = this.focused.has(i)
+        ? this.glowMaterial(color)
+        : this.focused.size > 0
+          ? this.dimMaterial(color)
+          : this.material(color);
     });
     this.invalidate();
   }
 
   setSticker(index: number, color: number): void {
+    if (this.shown) {
+      this.shown = this.shown.slice();
+      this.shown[index] = color;
+    }
     this.stickers[index].material = this.material(color);
     this.invalidate();
+  }
+
+  /** Make these pieces glow softly (each piece given by its sticker colors). Follows them as they move. */
+  setFocus(pieces: number[][]): void {
+    const same =
+      pieces.length === this.focusPieces.length && pieces.every((p, i) => p.join() === this.focusPieces[i]?.join());
+    if (same) return;
+    this.focusPieces = pieces.map((p) => [...p]);
+    if (this.shown) this.setState(this.shown);
+  }
+
+  private findFocus(state: State): Set<number> {
+    if (this.puzzle.n !== 3 || this.focusPieces.length === 0) return new Set();
+    return new Set(this.focusPieces.flatMap((colors) => findPieceStickers(state, colors)));
+  }
+
+  /** Darker version of a sticker color, to make focus pieces stand out. */
+  private dimMaterial(color: number): THREE.MeshPhysicalMaterial {
+    let m = this.dimMaterials.get(color);
+    if (!m) {
+      m = this.material(color).clone();
+      m.color.multiplyScalar(0.2); // linear color space: about half as bright to the eye
+      this.dimMaterials.set(color, m);
+    }
+    return m;
+  }
+
+  private glowMaterial(color: number): THREE.MeshPhysicalMaterial {
+    let m = this.glowMaterials.get(color);
+    if (!m) {
+      m = this.material(color).clone();
+      m.emissive = new THREE.Color(this.material(color).color);
+      m.emissiveIntensity = 0.3;
+      this.glowMaterials.set(color, m);
+    }
+    return m;
   }
 
   /** Raise and brighten stickers, e.g. to show validation problems. */
@@ -305,6 +377,8 @@ export class CubeView {
     this.bodyGeometry.dispose();
     this.bodyMaterial.dispose();
     this.materials.forEach((m) => m.dispose());
+    this.glowMaterials.forEach((m) => m.dispose());
+    this.dimMaterials.forEach((m) => m.dispose());
     this.shadow.geometry.dispose();
     (this.shadow.material as THREE.MeshBasicMaterial).map?.dispose();
     (this.shadow.material as THREE.Material).dispose();
@@ -440,6 +514,23 @@ export class CubeView {
     }
     // update() applies damping and fires 'change' (which invalidates) while the camera moves.
     this.controls.update();
+    if (this.focused.size > 0) {
+      // Pulse brightness and size so even white stickers stand out.
+      const pulse = 0.5 + 0.5 * Math.sin(now / 240);
+      this.glowMaterials.forEach((m) => (m.emissiveIntensity = 0.3 + 0.5 * pulse));
+      for (const i of this.focused) this.stickers[i].scale.setScalar(1.03 + 0.09 * pulse);
+      this.dirty = true;
+    }
+    if (this.cameraMove) {
+      const c = this.cameraMove;
+      const t = Math.min(1, (now - c.start) / c.duration);
+      const distance = this.camera.position.length();
+      const dir = c.from.clone().lerp(c.to, easeInOutCubic(t)).normalize();
+      this.camera.position.copy(dir.multiplyScalar(distance));
+      this.camera.lookAt(this.controls.target);
+      if (t >= 1) this.cameraMove = null;
+      this.dirty = true;
+    }
     if (this.stepInset(dt) || this.anim || this.spin) this.dirty = true;
     if (!this.dirty) return;
     this.dirty = false;
