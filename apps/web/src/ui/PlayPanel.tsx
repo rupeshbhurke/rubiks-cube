@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { CUBE_FACES } from '@rubiks/core';
 import type { AppController, Snapshot } from '../controller/AppController';
 import { Icon } from './Icon';
+import { moveHint } from './moveHint';
 
 interface Props {
   snap: Snapshot;
@@ -9,14 +10,6 @@ interface Props {
 }
 
 const FACE_COLOR: Record<string, string> = Object.fromEntries(CUBE_FACES.map((f) => [f.letter, f.color]));
-
-/** Tooltip naming the key that does the same move. */
-function keyHint(token: string): string {
-  const key = token[0].toUpperCase();
-  if (token.endsWith("'")) return `Key: Shift + ${key}`;
-  if (token.endsWith('2')) return `Key: ${key} twice`;
-  return `Key: ${key}`;
-}
 
 export function PlayPanel({ snap, controller }: Props) {
   const disabled = snap.mode !== 'play';
@@ -31,7 +24,7 @@ export function PlayPanel({ snap, controller }: Props) {
             <div key={g} className="move-group" style={{ '--face': FACE_COLOR[g] ?? 'var(--muted)' } as React.CSSProperties}>
               <span className="move-letter">{g}</span>
               {[g, `${g}'`, `${g}2`].map((t) => (
-                <button key={t} className="move-btn" disabled={disabled} title={keyHint(t)} onClick={() => controller.move(t)}>
+                <button key={t} className="move-btn" disabled={disabled} title={moveHint(t)} onClick={() => controller.move(t)}>
                   {t}
                 </button>
               ))}

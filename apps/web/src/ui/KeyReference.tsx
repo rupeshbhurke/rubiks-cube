@@ -79,6 +79,7 @@ const GROUPS: KeyGroup[] = [
 const POINTER: KeyRow[] = [
   { keys: ['Drag sticker'], label: 'Turn that layer' },
   { keys: ['Flick'], label: 'Finish the turn with a quick swipe' },
+  { keys: ['Right-drag', 'Shift + drag'], label: 'Turn the whole cube' },
   { keys: ['Drag background'], label: 'Look around the cube' },
   { keys: ['Scroll', 'Pinch'], label: 'Zoom in and out' },
 ];

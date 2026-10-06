@@ -115,6 +115,11 @@ interface QueuedTurn {
   duration?: number;
 }
 
+/** All 24 orientations of the cube, as whole-cube turns (identity excluded). */
+const WHOLE_CUBE_TURNS = ['', 'x', 'x2', "x'", 'z', "z'"]
+  .flatMap((up) => ['', 'y', 'y2', "y'"].map((spin) => [up, spin].filter(Boolean)))
+  .filter((turns) => turns.length > 0);
+
 const BASE_TURN_MS = 230;
 const SCRAMBLE_TURN_MS = 75;
 
@@ -366,6 +371,15 @@ export class AppController {
       const steps = planBeginnerSolve(this.session.state);
       this.plan = this.buildPlan('guided', steps);
       this.lastSyncedKey = '';
+      this.emit();
+      // Getting white to the bottom is setup, not a lesson: do it right away and say so.
+      const first = steps[0];
+      if (first?.stage === 'orient') {
+        const plan = this.plan;
+        this.toast(`Turning the whole cube (${first.moves.join(' ')}) so the white center is at the bottom.`, 'info');
+        void this.playPlanUntil(() => this.plan !== plan || plan.pointer >= first.moves.length);
+      }
+      return;
     } catch (err) {
       this.toast((err as Error).message, 'error');
     }
@@ -519,8 +533,27 @@ export class AppController {
       p.stale = false;
       return;
     }
+    // Turning the whole cube to look at it is natural with a real cube; the
+    // guide just re-plans for the new orientation instead of complaining.
+    if (p.kind === 'guided' && this.isWholeCubeTurnOf(this.session.state, p.keys[p.pointer])) {
+      const plan = p;
+      queueMicrotask(() => {
+        if (this.plan !== plan) return;
+        this.startGuided();
+        this.toast('You turned the whole cube, so the guide updated its moves.', 'info');
+      });
+      return;
+    }
     p.stale = true;
     p.half = false;
+  }
+
+  /** True when `state` is the position with `key`, seen after a whole-cube turn. */
+  private isWholeCubeTurnOf(state: State, key: string): boolean {
+    return WHOLE_CUBE_TURNS.some((turns) => {
+      const turned = turns.reduce((s, t) => this.puzzle.apply(s, this.puzzle.parseMove(t)), state);
+      return this.stateKey(turned) === key;
+    });
   }
 
   private stepIndex(p: Plan): number {

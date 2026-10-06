@@ -9,7 +9,7 @@ A 3D Rubik's cube that runs in the browser. You can turn layers by dragging or w
 ## Features
 
 - Realistic 3D cube (black body, rounded stickers) with smooth, queued turn animations.
-- Drag a sticker to turn its layer; a quick flick finishes the turn. Drag the background to look around.
+- Drag a sticker to turn its layer; a quick flick finishes the turn. Right-drag or Shift + drag the cube to turn the whole cube. Drag the background to look around.
 - Keyboard notation (`U D R L F B M E S X Y Z`, Shift for counter-clockwise), undo and redo. Press `?` for a floating key guide that stays open beside the cube and lights up each key as you press it.
 - Cube sizes 2x2x2 to 7x7x7.
 - Scramble, full move history, replay, and jump to any point in the history.

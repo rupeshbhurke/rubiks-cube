@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BEGINNER_STAGES, describeCubeMove } from '@rubiks/core';
 import type { AppController, PlanSnapshot, Snapshot } from '../controller/AppController';
 import { Icon } from './Icon';
+import { moveHint } from './moveHint';
 
 interface Props {
   snap: Snapshot;
@@ -175,7 +176,10 @@ function StepCard({ plan, controller, disabled, playing }: { plan: PlanSnapshot;
       {next && (
         <div className="next-move">
           <span className="next-token mono">{next}</span>
-          <span>{plan.half ? `Half done. Turn once more to finish ${next}.` : describeCubeMove(next)}</span>
+          <span>
+                  {plan.half ? `Half done. Turn once more to finish ${next}.` : describeCubeMove(next)}
+                  <span className="move-hint">{moveHint(next)}</span>
+                </span>
         </div>
       )}
       <div className="row wrap">
@@ -243,7 +247,10 @@ function Quick({ snap, controller, plan }: Props & { plan: PlanSnapshot | null }
             next && (
               <div className="next-move">
                 <span className="next-token mono">{next}</span>
-                <span>{plan.half ? `Half done. Turn once more to finish ${next}.` : describeCubeMove(next)}</span>
+                <span>
+                  {plan.half ? `Half done. Turn once more to finish ${next}.` : describeCubeMove(next)}
+                  <span className="move-hint">{moveHint(next)}</span>
+                </span>
               </div>
             )
           )}

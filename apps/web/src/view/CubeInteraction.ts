@@ -17,7 +17,9 @@ export interface InteractionHost {
 
 interface DragDecision {
   axis: Axis;
-  layer: number;
+  /** Layers that turn (all of them for a whole-cube turn). */
+  lo: number;
+  hi: number;
   /** +1 or -1: rotation sign about the positive axis for a positive drag. */
   sign: number;
   /** Unit screen vector for a positive drag. */
@@ -30,6 +32,8 @@ interface DragState {
   startX: number;
   startY: number;
   hit: PickHit;
+  /** Right-drag or Shift + drag turns the whole cube. */
+  whole: boolean;
   decision: DragDecision | null;
   samples: { t: number; angle: number }[];
 }
@@ -42,7 +46,8 @@ const SNAP_BIAS = 0.65;
 /**
  * Turns pointer input on the cube into layer turns (play mode) or sticker
  * painting (paint mode). Pointer-downs that miss the cube fall through to the
- * orbit controls, so dragging the background rotates the camera.
+ * orbit controls, so dragging the background rotates the camera. Right-drag
+ * or Shift + drag on the cube turns the whole cube (x, y, z).
  */
 export class CubeInteraction {
   private drag: DragState | null = null;
@@ -56,6 +61,7 @@ export class CubeInteraction {
   ) {
     // Capture phase on the container runs before OrbitControls' own listener on the canvas.
     el.addEventListener('pointerdown', this.onDown, { capture: true });
+    el.addEventListener('contextmenu', this.onContextMenu);
     window.addEventListener('pointermove', this.onMove);
     window.addEventListener('pointerup', this.onUp);
     window.addEventListener('pointercancel', this.onUp);
@@ -67,6 +73,7 @@ export class CubeInteraction {
 
   dispose(): void {
     this.el.removeEventListener('pointerdown', this.onDown, { capture: true });
+    this.el.removeEventListener('contextmenu', this.onContextMenu);
     window.removeEventListener('pointermove', this.onMove);
     window.removeEventListener('pointerup', this.onUp);
     window.removeEventListener('pointercancel', this.onUp);
@@ -74,9 +81,11 @@ export class CubeInteraction {
 
   private onDown = (e: PointerEvent): void => {
     if (this.drag || this.paintPointer !== null) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const whole = e.pointerType === 'mouse' && (e.button === 2 || (e.button === 0 && e.shiftKey));
+    if (e.pointerType === 'mouse' && e.button !== 0 && !whole) return;
 
     if (this.host.mode() === 'paint') {
+      if (e.button !== 0) return;
       const hit = this.view.pick(e.clientX, e.clientY);
       if (hit?.sticker == null) return;
       this.view.controls.enabled = false;
@@ -91,7 +100,7 @@ export class CubeInteraction {
     const hit = this.view.pick(e.clientX, e.clientY);
     if (!hit) return;
     this.view.controls.enabled = false;
-    this.drag = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, hit, decision: null, samples: [] };
+    this.drag = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, hit, whole, decision: null, samples: [] };
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -110,13 +119,13 @@ export class CubeInteraction {
     const dy = e.clientY - d.startY;
     if (!d.decision) {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      d.decision = this.decide(d.hit, dx, dy);
+      d.decision = this.decide(d.hit, dx, dy, d.whole);
       if (!d.decision) {
         this.cancel();
         return;
       }
       this.host.beforeTurn();
-      this.view.beginDrag(d.decision.axis, d.decision.layer, d.decision.layer);
+      this.view.beginDrag(d.decision.axis, d.decision.lo, d.decision.hi);
     }
     const { screenDir, pxPerRadian, sign } = d.decision;
     const angle = (sign * (dx * screenDir.x + dy * screenDir.y)) / pxPerRadian;
@@ -149,8 +158,8 @@ export class CubeInteraction {
     const target = quarters * QUARTER;
 
     const turns = normalizeTurns(quarters);
-    const { axis, layer } = d.decision;
-    const after = turns === 0 ? null : this.host.commitTurn({ axis, lo: layer, hi: layer, turns });
+    const { axis, lo, hi } = d.decision;
+    const after = turns === 0 ? null : this.host.commitTurn({ axis, lo, hi, turns });
     const remaining = Math.abs(target - angle) / QUARTER;
     void this.view.settleDrag(target, after, 80 + 220 * Math.min(1, remaining)).then(() => this.host.settled());
   };
@@ -161,7 +170,12 @@ export class CubeInteraction {
   }
 
   /** Choose the layer and rotation direction from the first few pixels of a drag. */
-  private decide(hit: PickHit, dx: number, dy: number): DragDecision | null {
+  private onContextMenu = (e: MouseEvent): void => {
+    // Right-drag on the cube turns the whole cube, so no browser menu there.
+    if (this.view.pick(e.clientX, e.clientY)) e.preventDefault();
+  };
+
+  private decide(hit: PickHit, dx: number, dy: number, whole: boolean): DragDecision | null {
     const n = this.view.size;
     const origin = this.view.toScreen(hit.point);
     const drag = new THREE.Vector2(dx, dy).normalize();
@@ -188,7 +202,8 @@ export class CubeInteraction {
     const axis = abs.indexOf(Math.max(...abs)) as Axis;
     return {
       axis,
-      layer: (hit.cubie[axis] + n - 1) / 2,
+      lo: whole ? 0 : (hit.cubie[axis] + n - 1) / 2,
+      hi: whole ? n - 1 : (hit.cubie[axis] + n - 1) / 2,
       sign: Math.sign(rotAxis.getComponent(axis)),
       screenDir: best.dir.clone().multiplyScalar(s),
       // Arc length over radius: the touched point follows the finger.
