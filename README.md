@@ -4,6 +4,8 @@ A 3D Rubik's cube that runs in the browser. You can turn layers by dragging or w
 
 > Status: work in progress.
 
+**Live app:** https://rupeshbhurke.github.io/rubiks-cube/
+
 ## Features
 
 - Realistic 3D cube (black body, rounded stickers) with smooth, queued turn animations.
@@ -28,7 +30,16 @@ npm run typecheck
 npm run build      # static site in apps/web/dist
 ```
 
-The build output is a plain static site with relative paths, so it can be hosted on any static web server (GitHub Pages, Netlify, an internal server) or in a sub-folder.
+The build output is a plain static site with relative paths, so it can be hosted on any static web server or in a sub-folder.
+
+## Deploy
+
+The app is hosted on GitHub Pages. The workflow in `.github/workflows/deploy.yml` runs on every push and pull request:
+
+1. Install dependencies, typecheck, run the unit tests and build.
+2. Deploy `apps/web/dist` to GitHub Pages, only for pushes to `main` or a manual run.
+
+To deploy by hand, open the repository's **Actions** tab, choose **Build and deploy**, then **Run workflow**. GitHub Pages must be set to deploy from **GitHub Actions** (repository **Settings → Pages → Source**).
 
 ## Project layout
 
@@ -62,6 +73,42 @@ npm workspaces with two packages:
 3. Make `AppController` choose the view by puzzle kind. It is written against the cube types today.
 
 Saves and share links already record the puzzle type, so they work for new puzzles without format changes.
+
+## Roadmap
+
+Status as of October 2026. Items move to **Features** when they are done.
+
+### Planned features
+
+- **More puzzles: Pyraminx, Skewb and Megaminx.** Each needs its puzzle logic, scramble and 3D view in `packages/core` and `apps/web` (see [Adding a new puzzle type](#adding-a-new-puzzle-type)). `AppController` and the side panels also need to stop assuming a cube.
+- **2D unfolded net view.** Not yet decided: a net beside the 3D cube, a net only in paint mode, or a switch between the two.
+- **Guided beginner solve.** The current solver gives short computer solutions that are hard to follow. A layer-by-layer guide would teach each stage in plain language, for example "make the white cross", and would better serve the learning goal.
+- **Logic shared with the mobile app.** The mobile app will live in a separate repository and should reuse `packages/core`. The package needs a build step to JavaScript plus type definitions. It also needs a way to share it: a private npm package, a git dependency, or moving the mobile app into this repository.
+
+### Known gaps
+
+- **Solver covers the 3x3x3 only.** A 2x2x2 solver is straightforward to add; 4x4x4 and larger are much harder.
+- **Big-cube controls.** On 4x4x4 and larger there are no keys or buttons for wide or inner-slice turns, and dragging turns one layer at a time.
+- **Paint mode limits.**
+  - Center colors are fixed: white on top, green in front.
+  - Only the standard color scheme is supported.
+  - On sizes other than 3x3x3 it checks color counts only.
+- **No automated tests for the web app.** `packages/core` has unit tests, but the UI was checked by hand and with one-off browser scripts. CI runs the unit tests and the build on every push; end-to-end browser tests (for example Playwright) still need adding.
+- **Not yet tested on real devices.** Drag feel, animation speed and touch handling need checking on real computers and phones.
+- **Bundle size.** The app ships as one 864 KB script (233 KB gzipped). Splitting Three.js and React into separate chunks would speed up the first load.
+- **Saves stay in one browser.** Saves use `localStorage` behind `SaveStore`, so they can move to IndexedDB or cloud storage later.
+
+### Open decisions
+
+- Keep or remove the **Keys** tab, now that the floating key guide (`?`) shows the same list.
+- Choose how the mobile app gets `packages/core`.
+
+### Suggested order
+
+1. Test on real devices.
+2. Build the guided beginner solve.
+3. Package `packages/core` for the mobile app.
+4. Add the new puzzle types.
 
 ## License
 
