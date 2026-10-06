@@ -1,0 +1,11 @@
+{
+  "name": "@rubiks/core",
+  "version": "0.1.0",
+  "description": "Platform-independent puzzle logic: cube model, notation, validation, saves and solver.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./solver": "./src/solver/index.ts"
+  }
+}
