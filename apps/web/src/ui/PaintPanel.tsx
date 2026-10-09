@@ -15,7 +15,7 @@ export function PaintPanel({ snap, controller }: Props) {
           <h2>Copy a real cube</h2>
           <p>Paint the stickers to match a physical cube, then solve or save it.</p>
           <ol className="steps">
-            <li>Hold your cube with the white center on top and the green center facing you.</li>
+            <li>Hold your cube with the white center at the bottom, the green center facing you and the red center on the left.</li>
             <li>Pick a color, then tap or drag across stickers to paint them.</li>
             <li>Rotate the view to reach every face.</li>
             <li>Press “Use this state”. The app checks that the cube can really exist.</li>

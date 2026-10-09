@@ -8,8 +8,8 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 const Z = new THREE.Vector3(0, 0, 1);
 /** Camera directions: the usual view from above, and one from below for bottom-layer work. */
 const VIEW_FROM = {
-  top: new THREE.Vector3(0.72, 0.68, 1).normalize(),
-  bottom: new THREE.Vector3(0.72, -0.62, 1).normalize(),
+  top: new THREE.Vector3(-0.72, 0.68, 1).normalize(),
+  bottom: new THREE.Vector3(-0.72, -0.62, 1).normalize(),
 };
 
 const BODY_SIZE = 0.97;

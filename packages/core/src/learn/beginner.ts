@@ -96,7 +96,7 @@ export const BEGINNER_STAGES: readonly GuideStage[] = [
 
 const U = 0, R = 1, F = 2, D = 3, L = 4, B = 5;
 const LETTERS = 'URFDLB';
-const WHITE = 0; // color id of the standard Up color
+const WHITE = CUBE_FACES.findIndex((f) => f.colorName === 'White'); // color id
 const RIGHT_OF: Record<number, number> = { [F]: R, [R]: B, [B]: L, [L]: F };
 const LEFT_OF: Record<number, number> = { [F]: L, [L]: B, [B]: R, [R]: F };
 const OPPOSITE: Record<number, number> = { [F]: B, [B]: F, [R]: L, [L]: R };

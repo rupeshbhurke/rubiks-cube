@@ -91,7 +91,7 @@ Status as of October 2026. Items move to **Features** when they are done.
 - **Solver covers the 3x3x3 only.** A 2x2x2 solver is straightforward to add; 4x4x4 and larger are much harder.
 - **Big-cube controls.** On 4x4x4 and larger there are no keys or buttons for wide or inner-slice turns, and dragging turns one layer at a time.
 - **Paint mode limits.**
-  - Center colors are fixed: white on top, green in front.
+  - Center colors are fixed: white at the bottom, green in front, red on the left.
   - Only the standard color scheme is supported.
   - On sizes other than 3x3x3 it checks color counts only.
 - **No automated tests for the web app.** `packages/core` has unit tests, but the UI was checked by hand and with one-off browser scripts. CI runs the unit tests and the build on every push; end-to-end browser tests (for example Playwright) still need adding.

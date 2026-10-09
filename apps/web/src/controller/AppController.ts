@@ -610,7 +610,7 @@ export class AppController {
   paintSticker(index: number): void {
     if (this.mode !== 'paint' || !this.paintState) return;
     if (this.puzzle.isFixedCenter(index)) {
-      this.toast('Center colors are fixed. Hold your cube with white on top and green in front.', 'info');
+      this.toast('Center colors are fixed. Hold your cube with white on the bottom, green in front and red on the left.', 'info');
       return;
     }
     if (this.paintState[index] === this.paintColor) return;
